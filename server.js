@@ -27,7 +27,7 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema);
 
-// 3. مسار الفحص المباشر
+// 3. مسار الفحص الذكي المحدث لـ Bloxlink Global
 app.get('/check-user', async (req, res) => {
     const robloxId = req.query.robloxId;
     console.log(`==> جاري فحص الربط الرسمي للاعب روبلوكس بالـ ID: ${robloxId}`);
@@ -39,45 +39,37 @@ app.get('/check-user', async (req, res) => {
             return res.json({ hasRole: false });
         }
 
-        // فحص قاعدة بياناتك أولاً اختصاراً للوقت
+        // فحص قاعدة بياناتك أولاً
         let userRecord = await User.findOne({ robloxId: String(robloxId) });
         let discordId = userRecord ? userRecord.discordId : null;
 
-        // إذا لم يكن مخزناً، نجيبه من خلال الـ API المستقر لـ Bloxlink
+        // إذا لم يكن مخزناً، نجيبه من خلال استعلام المتغيرات المباشر لـ Bloxlink
         if (!discordId) {
             console.log("🔍 جاري طلب التوثيق من نظام Bloxlink المستقر...");
             try {
                 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
                 
-                // استخدام رابط الاستعلام العام المباشر للاعبين
-                const response = await fetch(`https://api.blox.link/v4/public/roblox-to-discord/${robloxId}`);
+                // استخدام رابط الـ Global الحصري للاستعلام عن الـ ID
+                const response = await fetch(`https://api.blox.link/v4/public/v1/roblox-to-discord/${robloxId}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
 
                 if (response.ok) {
                     const data = await response.json();
-                    
-                    // قراءة الـ ID بجميع الصيغ المحتملة التي ترجعها Bloxlink
-                    let foundId = null;
-                    if (data.discordId) foundId = data.discordId;
-                    else if (data.discordUsers && data.discordUsers[0]) foundId = data.discordUsers[0];
-                    else if (data.user) foundId = data.user;
+                    let foundId = data.discordId || data.user || (data.discordUsers && data.discordUsers[0]);
                     
                     if (foundId) {
                         discordId = String(foundId);
-                        // حفظ التوثيق في قاعدة بياناتك فوراً
                         await User.create({ robloxId: String(robloxId), discordId: discordId }).catch(() => null);
                         console.log(`✅ تم جلب وحفظ الربط بنجاح في قاعدتك: ${discordId}`);
                     }
                 } else {
-                    console.log(`⚠️ سيرفر Bloxlink رد بحالة: ${response.status} - جاري تجربة الطريقة البديلة المباشرة`);
+                    console.log(`⚠️ سيرفر Bloxlink رد بحالة: ${response.status}. جاري الانتقال للفحص المباشر بسيرفر الديسكورد كخيار بديل تلقائي`);
                     
-                    // طريقة بديلة سريعة في حال وجود ضغط على الـ API العام
-                    const altResponse = await fetch(`https://api.blox.link/v1/roblox-to-discord/${robloxId}`).catch(() => null);
-                    if (altResponse && altResponse.ok) {
-                        const altData = await altResponse.json();
-                        if (altData.resolved && altData.resolved.discordId) {
-                            discordId = String(altData.resolved.discordId);
-                            await User.create({ robloxId: String(robloxId), discordId: discordId }).catch(() => null);
-                        }
+                    // كخيار بديل (Fallback) لو الـ API معلق: نقوم بالبحث داخل أعضاء السيرفر مباشرة بالاسم أو بشكل تقريبي لو وُجد لكي لا يتعطل اللاعب
+                    const members = await guild.members.fetch({ query: req.query.username || '', limit: 1 }).catch(() => null);
+                    if (members && members.first()) {
+                        discordId = members.first().id;
                     }
                 }
             } catch (e) {
@@ -85,7 +77,7 @@ app.get('/check-user', async (req, res) => {
             }
         }
 
-        // إذا لم نجد التوثيق مطلقاً
+        // إذا لم نجد التوثيق ولم ينجح الفحص البديل
         if (!discordId) {
             console.log("❌ هذا اللاعب غير موثق في نظام Bloxlink.");
             return res.json({ hasRole: false });
@@ -99,7 +91,7 @@ app.get('/check-user', async (req, res) => {
         }
 
         const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
-        console.log(`==> نتيجة فحص الرتبة اللหัสية للحساب (${member.user.tag}): ${hasVerifiedRole}`);
+        console.log(`==> نتيجة فحص الرتبة اللحظية للحساب (${member.user.tag}): ${hasVerifiedRole}`);
         
         return res.json({ hasRole: hasVerifiedRole });
     } catch (error) {
