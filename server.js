@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
-const https = require('https'); // استخدام مكتبة النظام الأصلية لضمان استقرار الاتصال
+const fetch = require('node-fetch');
 const app = express();
 
 const client = new Client({ 
@@ -14,70 +14,50 @@ const GUILD_ID = process.env.GUILD_ID;
 const ROLE_NAME = process.env.ROLE_NAME || "Verified";
 const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
-// دالة تجلب البيانات تلقائياً من Bloxlink مع تجاوز مشاكل وكيل Render
-function getDiscordIdFromRoblox(robloxId) {
-    return new Promise((resolve) => {
-        const options = {
-            hostname: 'api.bloxlink.cloud',
-            path: `/v1/roblox-to-discord/${robloxId}`,
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' // إيهام السيرفر بطلب طبيعي
-            },
-            timeout: 5000 // وقت مستقطع 5 ثوانٍ لمنع التعليق
-        };
-
-        const req = https.request(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-                try {
-                    const parsed = JSON.parse(data);
-                    if (parsed && parsed.success === true && parsed.user) {
-                        resolve(String(parsed.user));
-                    } else if (parsed && parsed.resolved && parsed.discordId) {
-                        resolve(String(parsed.discordId));
-                    } else {
-                        resolve(null);
-                    }
-                } catch (e) {
-                    resolve(null);
-                }
-            });
-        });
-
-        req.on('error', (e) => {
-            console.log("⚠️ محاولة اتصال بديلة عبر الرابط الاحتياطي بسبب قيود الشبكة...");
-            // محاولة الاتصال بالرابط البديل تلقائياً في حال فشل الأول
-            https.get(`https://api.rover.link/v1/roblox-to-discord/${robloxId}`, {
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            }, (res2) => {
-                let data2 = '';
-                res2.on('data', (chunk) => { data2 += chunk; });
-                res2.on('end', () => {
-                    try {
-                        const parsed2 = JSON.parse(data2);
-                        resolve(parsed2.discordId ? String(parsed2.discordId) : null);
-                    } catch { resolve(null); }
-                });
-            }).on('error', () => resolve(null));
-        });
-
-        req.end();
-    });
+async function getDiscordIdFromRoblox(robloxId) {
+    try {
+        // استخدام بروكسي "allorigins" لتخطي مشاكل الـ DNS والاتصال المحجوب في Render
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`)}`;
+        
+        const response = await fetch(proxyUrl);
+        if (!response.ok) return null;
+        
+        const wrapper = await response.json();
+        // البروكسي يعيد البيانات داخل متغير contents بنص نصي، نحتاج لتحويله لـ JSON
+        const data = JSON.parse(wrapper.contents);
+        
+        if (data && data.success === true && data.user) {
+            return String(data.user);
+        } else if (data && data.resolved && data.discordId) {
+            return String(data.discordId);
+        }
+        return null;
+    } catch (e) {
+        console.log("⚠️ فشل البروكسي الأول، جاري تجربة البروكسي البديل...");
+        try {
+            // بروكسي احتياطي ثانٍ في حال تعطل الأول
+            const backupProxy = `https://corsproxy.io/?${encodeURIComponent(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`)}`;
+            const response2 = await fetch(backupProxy);
+            if (!response2.ok) return null;
+            const data2 = await response2.json();
+            if (data2 && data2.success === true && data2.user) return String(data2.user);
+        } catch {
+            return null;
+        }
+        return null;
+    }
 }
 
 app.get('/check-user', async (req, res) => {
     const robloxId = req.query.robloxId;
-    console.log(`==> فحص تلقائي للاعب روبلوكس برقم: ${robloxId}`);
+    console.log(`==> فحص تلقائي وديناميكي للاعب روبلوكس برقم: ${robloxId}`);
     
     try {
-        // فحص تلقائي وديناميكي عبر الـ APIs
         const discordId = await getDiscordIdFromRoblox(robloxId);
-        console.log(`==> رقم الديسكورد المسترجع تلقائياً: ${discordId}`);
+        console.log(`==> رقم الديسكورد المسترجع بنجاح عبر البروكسي: ${discordId}`);
         
         if (!discordId) {
-            console.log("❌ لم يتم العثور على حساب الديسكورد المرتبط بهذا اللاعب تلقائياً.");
+            console.log("❌ لم يتم العثور على حساب الديسكورد تلقائياً.");
             return res.json({ hasRole: false });
         }
 
@@ -105,5 +85,5 @@ app.get('/check-user', async (req, res) => {
 
 client.login(BOT_TOKEN);
 app.listen(3000, () => {
-    console.log("🚀 السيرفر يعمل بنظام التوثيق التلقائي المطور مع تخطي القيود!");
+    console.log("🚀 السيرفر يعمل بنظام البروكسي التلقائي كاسر القيود الحالية!");
 });
