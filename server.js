@@ -16,25 +16,25 @@ const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 async function getDiscordIdFromRoblox(robloxId) {
     try {
-        // الرابط الرسمي والمستقر لـ Bloxlink API v1 مع علامات الباك-تيك الصحيحة
-        const response = await fetch(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`);
+        // التحويل إلى سيرفر v3 المستقر لتجنب خطأ ENOTFOUND الخاص بـ Render
+        const response = await fetch(`https://v3.blox.link/developer/roblox/${robloxId}`);
         if (!response.ok) {
-            console.log(`❌ فشل استجابة Bloxlink: ${response.status}`);
+            console.log(`❌ فشل استجابة Bloxlink v3: ${response.status}`);
             return null;
         }
         const data = await response.json();
         
-        // التحقق من الطريقة الصحيحة لقراءة النتيجة بحسب رد الموقع
-        if (data && data.success === true && data.user) {
-            return String(data.user);
-        } else if (data && data.resolved && data.discordId) {
+        // قراءة وتمرير الـ ID بحسب هيكلة نظام v3
+        if (data && data.user && data.user.id) {
+            return String(data.user.id);
+        } else if (data && data.discordId) {
             return String(data.discordId);
         }
         
-        console.log("❌ Bloxlink لم يجد الحساب أو الرد غير متوقع:", data);
+        console.log("❌ Bloxlink v3 لم يعثر على الحساب:", data);
         return null;
     } catch (e) {
-        console.log("❌ خطأ أثناء الاتصال بـ Bloxlink API:", e);
+        console.log("❌ خطأ أثناء الاتصال بـ Bloxlink v3 API:", e);
         return null;
     }
 }
@@ -61,7 +61,7 @@ app.get('/check-user', async (req, res) => {
             return res.json({ hasRole: false });
         }
 
-        // فحص الرتبة بدون التحسس لحالة الأحرف (كبيرة أو صغيرة)
+        // فحص الرتبة
         const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
         console.log(`==> هل يملك رتبة ${ROLE_NAME}؟ الجواب: ${hasVerifiedRole}`);
         
@@ -74,5 +74,5 @@ app.get('/check-user', async (req, res) => {
 
 client.login(BOT_TOKEN);
 app.listen(3000, () => {
-    console.log("🚀 السيرفر يعمل الآن على المنفذ 3000 ومستعد لاستقبال الطلبات!");
+    console.log("🚀 السيرفر يعمل ومستعد عبر مسار v3 الجديد!");
 });
