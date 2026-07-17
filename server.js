@@ -15,19 +15,19 @@ const ROLE_NAME = process.env.ROLE_NAME || "Verified";
 const BOT_TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
 
-// 1. الاتصال بقاعدة البيانات السحابية
+// 1. الاتصال بقاعدة البيانات
 mongoose.connect(MONGO_URI)
     .then(() => console.log("💾 متصل بنجاح بقاعدة البيانات السحابية!"))
     .catch(err => console.error("❌ فشل الاتصال بقاعدة البيانات:", err));
 
-// 2. هيكل حفظ الحسابات الموثقة محلياً لتسريع العمليات اللاحقة
+// 2. هيكل الحسابات
 const UserSchema = new mongoose.Schema({
     robloxId: { type: String, required: true, unique: true },
     discordId: { type: String, required: true }
 });
 const User = mongoose.model('User', UserSchema);
 
-// 3. مسار الفحص المباشر عبر Bloxlink API الرسمي
+// 3. مسار الفحص عبر V4 API الجديد لـ Bloxlink
 app.get('/check-user', async (req, res) => {
     const robloxId = req.query.robloxId;
     console.log(`==> جاري فحص الربط الرسمي للاعب روبلوكس بالـ ID: ${robloxId}`);
@@ -39,61 +39,60 @@ app.get('/check-user', async (req, res) => {
             return res.json({ hasRole: false });
         }
 
-        // البحث في قاعدة بياناتك أولاً لتوفير الوقت
+        // فحص قاعدة بياناتك أولاً
         let userRecord = await User.findOne({ robloxId: String(robloxId) });
         let discordId = userRecord ? userRecord.discordId : null;
 
-        // إذا لم يكن مسجلاً محلياً، نسحب بيانات التوثيق الرسمية مباشرة من Bloxlink API
+        // إذا لم يكن مخزناً، نجيبه من الرابط الجديد المحدث لـ Bloxlink
         if (!discordId) {
-            console.log("🔍 جاري طلب التوثيق مباشرة من سيرفرات Bloxlink...");
+            console.log("🔍 جاري طلب التوثيق من الـ API المحدث لـ Bloxlink...");
             try {
                 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-                // الاتصال بـ API التوثيق العالمي لـ Bloxlink باستخدام الـ Roblox ID
-                const response = await fetch(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`, {
-                    headers: { 'User-Agent': 'RobloxVerificationBot/1.0' }
-                });
+                
+                // استخدام إصدار v4 الجديد المستقر
+                const response = await fetch(`https://api.bloxlink.cloud/v4/public/roblox-to-discord/${robloxId}`);
 
                 if (response.ok) {
                     const data = await response.json();
-                    const foundId = data.user || data.discordId || data.discordID;
+                    // Bloxlink v4 يعيد النتيجة داخل كائن يدعى discordUsers أو الـ ID مباشرة
+                    const foundId = data.discordMessage || data.discordUser || (data.discordUsers && data.discordUsers[0]) || data.resolved?.discordId;
+                    
                     if (foundId) {
                         discordId = String(foundId);
-                        // حفظ التوثيق الرسمي في قاعدتك فوراً حتى لا نكرر الطلب الخارجي لنفس اللاعب
+                        // حفظ التوثيق في قاعدة بياناتك فوراً!
                         await User.create({ robloxId: String(robloxId), discordId: discordId }).catch(() => null);
-                        console.log(`✅ تم جلب وحفظ الربط الرسمي من Bloxlink للحساب: ${discordId}`);
+                        console.log(`✅ تم جلب وحفظ الربط بنجاح في قاعدتك: ${discordId}`);
                     }
-                } else {
-                    console.log(`⚠️ سيرفر Bloxlink رد بحالة غير طبيعية: ${response.status}`);
                 }
             } catch (e) {
-                console.log("❌ فشل الاتصال بـ Bloxlink API الخارجي:", e.message);
+                console.log("❌ فشل الاتصال بـ Bloxlink API المحدث:", e.message);
             }
         }
 
-        // إذا لم يتم العثور على أي ربط حساب رسمي للاعب في Bloxlink
+        // إذا لم نجد التوثيق مطلقاً
         if (!discordId) {
-            console.log("❌ هذا اللاعب غير موثق حسابه نهائياً في نظام Bloxlink.");
+            console.log("❌ هذا اللاعب غير موثق في نظام Bloxlink أو الرابط لم يستجب.");
             return res.json({ hasRole: false });
         }
 
-        // الفحص اللحظي المباشر للرتبة داخل سيرفر الديسكورد الخاص بك
+        // الفحص اللحظي للرتبة بالسيرفر
         const member = await guild.members.fetch(String(discordId)).catch(() => null);
         if (!member) {
-            console.log("❌ اللاعب يملك حساب موثق لكنه ليس عضواً في سيرفر الديسكورد الخاص بك.");
+            console.log("❌ اللاعب موثق لكنه خارج سيرفر الديسكورد.");
             return res.json({ hasRole: false });
         }
 
         const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
-        console.log(`==> نتيجة فحص رتبة Verified اللحظية للحساب (${member.user.tag}): ${hasVerifiedRole}`);
+        console.log(`==> نتيجة فحص الرتبة اللحظية للحساب (${member.user.tag}): ${hasVerifiedRole}`);
         
         return res.json({ hasRole: hasVerifiedRole });
     } catch (error) {
-        console.log("❌ خطأ داخلي في السيرفر السحابي:", error);
+        console.log("❌ خطأ داخلي:", error);
         return res.status(500).json({ error: "Server Error" });
     }
 });
 
 client.login(BOT_TOKEN);
 app.listen(3000, () => {
-    console.log("🚀 النظام السحابي المعتمد على معرفات Bloxlink الرسمية يعمل الآن!");
+    console.log("🚀 النظام المحدث بالكامل جاهز ويعمل الآن!");
 });
