@@ -16,25 +16,18 @@ const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 async function getDiscordIdFromRoblox(robloxId) {
     try {
-        // التحويل إلى سيرفر v3 المستقر لتجنب خطأ ENOTFOUND الخاص بـ Render
-        const response = await fetch(`https://v3.blox.link/developer/roblox/${robloxId}`);
+        // الانتقال إلى الـ API الخاص بـ RoVer لتخطي حجب وسقوط اتصال Render بـ Bloxlink
+        const response = await fetch(`https://api.rover.link/v1/roblox-to-discord/${robloxId}`);
         if (!response.ok) {
-            console.log(`❌ فشل استجابة Bloxlink v3: ${response.status}`);
+            console.log(`❌ فشل استجابة RoVer API: ${response.status}`);
             return null;
         }
         const data = await response.json();
         
-        // قراءة وتمرير الـ ID بحسب هيكلة نظام v3
-        if (data && data.user && data.user.id) {
-            return String(data.user.id);
-        } else if (data && data.discordId) {
-            return String(data.discordId);
-        }
-        
-        console.log("❌ Bloxlink v3 لم يعثر على الحساب:", data);
-        return null;
+        // استخراج المعرف بنجاح من هيكلة بيانات RoVer
+        return data.discordId ? String(data.discordId) : null;
     } catch (e) {
-        console.log("❌ خطأ أثناء الاتصال بـ Bloxlink v3 API:", e);
+        console.log("❌ خطأ أثناء الاتصال بـ RoVer API:", e);
         return null;
     }
 }
@@ -45,7 +38,7 @@ app.get('/check-user', async (req, res) => {
     
     try {
         const discordId = await getDiscordIdFromRoblox(robloxId);
-        console.log(`==> رقم الديسكورد المسترجع من Bloxlink هو: ${discordId}`);
+        console.log(`==> رقم الديسكورد المسترجع هو: ${discordId}`);
         
         if (!discordId) return res.json({ hasRole: false });
 
@@ -61,7 +54,7 @@ app.get('/check-user', async (req, res) => {
             return res.json({ hasRole: false });
         }
 
-        // فحص الرتبة
+        // فحص الرتبة داخل السيرفر
         const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
         console.log(`==> هل يملك رتبة ${ROLE_NAME}؟ الجواب: ${hasVerifiedRole}`);
         
@@ -74,5 +67,5 @@ app.get('/check-user', async (req, res) => {
 
 client.login(BOT_TOKEN);
 app.listen(3000, () => {
-    console.log("🚀 السيرفر يعمل ومستعد عبر مسار v3 الجديد!");
+    console.log("🚀 السيرفر يعمل ومستعد عبر مسار RoVer البديل لتخطي أخطاء الـ DNS!");
 });
