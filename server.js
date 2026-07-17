@@ -16,12 +16,15 @@ const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 async function getDiscordIdFromRoblox(robloxId) {
     try {
-        // تم تصحيح الرابط هنا باستخدام علامات الـ Backticks الصحيحة لتمرير الرقم
-        const response = await fetch(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`);
+        // استخدام الرابط المحدث والبديل لـ Bloxlink لضمان استرجاع البيانات
+        const response = await fetch(`https://api.v2.blox.link/roblox/discord/${robloxId}`);
         if (!response.ok) return null;
         const data = await response.json();
-        return data.resolved ? String(data.discordId) : null;
+        
+        // الرابط الجديد يعيد النتيجة داخل متغير user
+        return data.user ? String(data.user) : null;
     } catch (e) {
+        console.log("❌ خطأ أثناء الاتصال بـ Bloxlink API:", e);
         return null;
     }
 }
