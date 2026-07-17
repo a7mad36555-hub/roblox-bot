@@ -27,7 +27,7 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema);
 
-// 3. مسار الفحص عبر V4 API الجديد لـ Bloxlink
+// 3. مسار الفحص عبر النطاق الجديد api.blox.link
 app.get('/check-user', async (req, res) => {
     const robloxId = req.query.robloxId;
     console.log(`==> جاري فحص الربط الرسمي للاعب روبلوكس بالـ ID: ${robloxId}`);
@@ -43,18 +43,19 @@ app.get('/check-user', async (req, res) => {
         let userRecord = await User.findOne({ robloxId: String(robloxId) });
         let discordId = userRecord ? userRecord.discordId : null;
 
-        // إذا لم يكن مخزناً، نجيبه من الرابط الجديد المحدث لـ Bloxlink
+        // إذا لم يكن مخزناً، نجيبه من النطاق والمصنع الجديد لـ Bloxlink
         if (!discordId) {
             console.log("🔍 جاري طلب التوثيق من الـ API المحدث لـ Bloxlink...");
             try {
                 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
                 
-                // استخدام إصدار v4 الجديد المستقر
-                const response = await fetch(`https://api.bloxlink.cloud/v4/public/roblox-to-discord/${robloxId}`);
+                // تعديل الرابط إلى api.blox.link بدلاً من القديم
+                const response = await fetch(`https://api.blox.link/v4/public/roblox-to-discord/${robloxId}`);
 
                 if (response.ok) {
                     const data = await response.json();
-                    // Bloxlink v4 يعيد النتيجة داخل كائن يدعى discordUsers أو الـ ID مباشرة
+                    
+                    // استخراج الـ ID بناءً على استجابة Bloxlink v4 الرسمية
                     const foundId = data.discordMessage || data.discordUser || (data.discordUsers && data.discordUsers[0]) || data.resolved?.discordId;
                     
                     if (foundId) {
@@ -63,9 +64,11 @@ app.get('/check-user', async (req, res) => {
                         await User.create({ robloxId: String(robloxId), discordId: discordId }).catch(() => null);
                         console.log(`✅ تم جلب وحفظ الربط بنجاح في قاعدتك: ${discordId}`);
                     }
+                } else {
+                    console.log(`⚠️ سيرفر Bloxlink رد بحالة: ${response.status}`);
                 }
             } catch (e) {
-                console.log("❌ فشل الاتصال بـ Bloxlink API المحدث:", e.message);
+                console.log("❌ فشل الاتصال بـ Bloxlink API:", e.message);
             }
         }
 
