@@ -16,13 +16,23 @@ const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 async function getDiscordIdFromRoblox(robloxId) {
     try {
-        // استخدام الرابط المحدث والبديل لـ Bloxlink لضمان استرجاع البيانات
-        const response = await fetch(`https://api.v2.blox.link/roblox/discord/${robloxId}`);
-        if (!response.ok) return null;
+        // الرابط الرسمي والمستقر لـ Bloxlink API v1 مع علامات الباك-تيك الصحيحة
+        const response = await fetch(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`);
+        if (!response.ok) {
+            console.log(`❌ فشل استجابة Bloxlink: ${response.status}`);
+            return null;
+        }
         const data = await response.json();
         
-        // الرابط الجديد يعيد النتيجة داخل متغير user
-        return data.user ? String(data.user) : null;
+        // التحقق من الطريقة الصحيحة لقراءة النتيجة بحسب رد الموقع
+        if (data && data.success === true && data.user) {
+            return String(data.user);
+        } else if (data && data.resolved && data.discordId) {
+            return String(data.discordId);
+        }
+        
+        console.log("❌ Bloxlink لم يجد الحساب أو الرد غير متوقع:", data);
+        return null;
     } catch (e) {
         console.log("❌ خطأ أثناء الاتصال بـ Bloxlink API:", e);
         return null;
@@ -41,7 +51,7 @@ app.get('/check-user', async (req, res) => {
 
         const guild = await client.guilds.fetch(String(GUILD_ID)).catch(() => null);
         if (!guild) {
-            console.log("❌ لم يتم العثور على سيرفر الديسكورد، تأكد من الـ GUILD_ID");
+            console.log("❌ لم يتم العثور على سيرفر الديسكورد، تأكد من الـ GUILD_ID في Render");
             return res.json({ hasRole: false });
         }
 
@@ -51,6 +61,7 @@ app.get('/check-user', async (req, res) => {
             return res.json({ hasRole: false });
         }
 
+        // فحص الرتبة بدون التحسس لحالة الأحرف (كبيرة أو صغيرة)
         const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
         console.log(`==> هل يملك رتبة ${ROLE_NAME}؟ الجواب: ${hasVerifiedRole}`);
         
@@ -62,4 +73,6 @@ app.get('/check-user', async (req, res) => {
 });
 
 client.login(BOT_TOKEN);
-app.listen(3000);
+app.listen(3000, () => {
+    console.log("🚀 السيرفر يعمل الآن على المنفذ 3000 ومستعد لاستقبال الطلبات!");
+});
