@@ -16,6 +16,7 @@ const BOT_TOKEN = process.env.DISCORD_TOKEN;
 
 async function getDiscordIdFromRoblox(robloxId) {
     try {
+        // تم تصحيح الرابط هنا باستخدام علامات الـ Backticks الصحيحة لتمرير الرقم
         const response = await fetch(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`);
         if (!response.ok) return null;
         const data = await response.json();
