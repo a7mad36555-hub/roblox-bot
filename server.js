@@ -16,89 +16,69 @@ const ROLE_NAME = process.env.ROLE_NAME || "Verified";
 const BOT_TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
 
-// 1. الاتصال بقاعدة البيانات السحابية (MongoDB)
+// 1. الاتصال بقاعدة البيانات السحابية
 mongoose.connect(MONGO_URI)
     .then(() => console.log("💾 متصل بنجاح بقاعدة البيانات السحابية التلقائية!"))
     .catch(err => console.error("❌ فشل الاتصال بقاعدة البيانات:", err));
 
-// 2. تصميم هيكل حفظ الحسابات المربوطة
+// 2. هيكل حفظ الحسابات
 const UserSchema = new mongoose.Schema({
     robloxId: { type: String, required: true, unique: true },
     discordId: { type: String, required: true }
 });
 const User = mongoose.model('User', UserSchema);
 
-// 3. ذكاء البوت: التحديث التلقائي المستمر عند تفاعل الأعضاء في الديسكورد
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
-    
-    // فحص إذا كان العضو يملك رتبة التوثيق ويحمل اسم روبلوكس في عرضه
-    const member = await message.guild.members.fetch(message.author.id).catch(() => null);
-    if (!member) return;
-
-    const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
-    if (hasVerifiedRole) {
-        // محاولة استخراج رقم روبلوكس تلقائياً إذا كان مسجلاً في حالته أو اسمه
-        // كخيار أكثر أماناً، يتم تغذية البيانات تلقائياً بمجرد دخول اللعبة وفحص الرتبة
-    }
-});
-
-// 4. مسار فحص روبلوكس (مستقل، لحظي، ومحمي من الحجب)
+// 3. مسار الفحص الذكي والمستقل تماماً
 app.get('/check-user', async (req, res) => {
     const robloxId = req.query.robloxId;
-    console.log(`==> فحص سحابي تلقائي للاعب روبلوكس برقم: ${robloxId}`);
+    const robloxName = req.query.robloxName; // سنرسل اسم اللاعب أيضاً من روبلوكس لزيادة الدقة
+    
+    console.log(`==> فحص سحابي تلقائي للاعب روبلوكس: ${robloxName} (${robloxId})`);
     
     try {
-        // البحث عن معرف اللاعب في قاعدة بياناتك الخاصة أولاً
-        let userRecord = await User.findOne({ robloxId: String(robloxId) });
-        let discordId = userRecord ? userRecord.discordId : null;
-
-        // إذا لم يكن مسجلاً في قاعدتك بعد، نقوم بعمل فحص تلقائي لمرة واحدة وحفظه
-        if (!discordId) {
-            console.log("🔍 لاعب جديد، جاري البحث والربط التلقائي في الخلفية...");
-            try {
-                const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-                // محاولة جلب سريعة وآمنة عبر البروكسي للتخزين لأول مرة فقط
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://api.bloxlink.cloud/v1/roblox-to-discord/${robloxId}`)}`;
-                const response = await fetch(proxyUrl);
-                if (response.ok) {
-                    const wrapper = await response.json();
-                    if (wrapper && wrapper.contents) {
-                        const data = JSON.parse(wrapper.contents);
-                        const foundId = data.user || data.discordId || data.discordID;
-                        if (foundId) {
-                            discordId = String(foundId);
-                            // حفظ الحساب فوراً في قاعدتك حتى لا نعود لـ Bloxlink لهذا اللاعب أبداً!
-                            await User.create({ robloxId: String(robloxId), discordId: discordId });
-                            console.log(`✅ تم حفظ الحساب تلقائياً في قاعدتك للاستخدام الدائم: ${discordId}`);
-                        }
-                    }
-                }
-            } catch (e) {
-                console.log("⚠️ تعذر جلب التوثيق الخارجي حالياً، سيتم الاعتماد على الفحص المحلي المباشر.");
-            }
-        }
-
-        // إذا لم نجد الحساب في كلتا الحالتين
-        if (!discordId) {
-            console.log("❌ لاعب غير موثق حالياً.");
-            return res.json({ hasRole: false });
-        }
-
-        // الاتصال اللحظي بالديسكورد للتحقق من الحالة الحالية (هل طُرد؟ هل سُحبت الرتبة؟)
         const guild = await client.guilds.fetch(String(GUILD_ID)).catch(() => null);
         if (!guild) {
             console.log("❌ لم يتم العثور على سيرفر الديسكورد، تأكد من الـ GUILD_ID");
             return res.json({ hasRole: false });
         }
 
+        // البحث عن معرف اللاعب في قاعدة بياناتك الخاصة أولاً
+        let userRecord = await User.findOne({ robloxId: String(robloxId) });
+        let discordId = userRecord ? userRecord.discordId : null;
+
+        // إذا لم يكن مسجلاً في قاعدتك بعد، نبحث عنه في الديسكورد مباشرة بناءً على اسمه في روبلوكس
+        if (!discordId && robloxName) {
+            console.log("🔍 لاعب جديد، جاري البحث التلقائي عنه في سيرفر الديسكورد...");
+            
+            // جلب قائمة الأعضاء بالكامل للبحث بداخلها
+            const members = await guild.members.fetch();
+            const matchingMember = members.find(m => 
+                (m.nickname && m.nickname.toLowerCase() === robloxName.toLowerCase()) || 
+                (m.user.username.toLowerCase() === robloxName.toLowerCase()) ||
+                (m.user.displayName && m.user.displayName.toLowerCase() === robloxName.toLowerCase())
+            );
+
+            if (matchingMember) {
+                discordId = String(matchingMember.id);
+                // حفظ الحساب فوراً في قاعدتك للاستخدام المستقبلي اللحظي
+                await User.create({ robloxId: String(robloxId), discordId: discordId }).catch(() => null);
+                console.log(`✅ تم ربط وحفظ الحساب تلقائياً في قاعدتك بنجاح: ${matchingMember.user.tag}`);
+            }
+        }
+
+        // إذا لم نجد الحساب نهائياً
+        if (!discordId) {
+            console.log("❌ لاعب غير موثق أو اسمه في الديسكورد لا يطابق اسمه في روبلوكس.");
+            return res.json({ hasRole: false });
+        }
+
+        // الفحص اللحظي الفعلي للرتبة داخل الديسكورد (هل طُرد؟ هل سُحبت الرتبة؟)
         const member = await guild.members.fetch(String(discordId)).catch(() => null);
         if (!member) {
             console.log("❌ اللاعب طُرد أو غادر سيرفر الديسكورد.");
             return res.json({ hasRole: false });
         }
 
-        // تحقق لحظي من الرتبة (إذا سحبها الإدمن تتغير الاستجابة فوراً في نفس الثانية)
         const hasVerifiedRole = member.roles.cache.some(role => role.name.toLowerCase() === ROLE_NAME.toLowerCase());
         console.log(`==> فحص الرتبة اللحظي لـ (${member.user.tag}): ${hasVerifiedRole}`);
         
